@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "package": "dev.trueholdsprint.mixin",
+  "minVersion": "0.8",
+  "client": [
+    "LocalPlayerMixin",
+    "LivingEntityMixin",
+    "MinecraftMixin",
+    "KeyMappingAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

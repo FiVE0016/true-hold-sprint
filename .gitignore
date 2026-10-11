@@ -1,0 +1,28 @@
+# Gradle
+.gradle/
+build/
+out/
+
+# Loom 的运行目录
+run/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+*.log
+
+# 构建日志（本地临时文件）
+build-log*.txt
+loom-*.log
+build*.log
+verify-*.log

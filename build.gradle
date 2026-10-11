@@ -1,0 +1,46 @@
+plugins {
+    // 26.1 起 Minecraft 不再混淆，Fabric 换了新的插件 ID
+    // 版本从 gradle.properties 读，方便没网时切到缓存里已有的版本
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+    id 'maven-publish'
+}
+
+version = project.mod_version
+group = project.maven_group
+
+base {
+    archivesName = project.archives_base_name
+}
+
+repositories {
+    mavenCentral()
+    maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+    maven { name = 'Mojang'; url = 'https://libraries.minecraft.net/' }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    // 26.1+ 的 Minecraft 本身就是未混淆的官方命名，不需要任何映射/Yarn
+    // 注意：新版（不重映射的）Loom 没有 modImplementation，一律用标准 Gradle 的 implementation
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+}
+
+java {
+    toolchain {
+        // Minecraft 26.3 需要 Java 25
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+    withSourcesJar()
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 25
+}

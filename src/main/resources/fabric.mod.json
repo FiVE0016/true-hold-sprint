@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "true-hold-sprint",
+  "version": "${version}",
+  "name": "真正的按住疾跑",
+  "description": "W 走路，Shift+W 疾跑，松开 Shift 立刻停止疾跑但继续前进。",
+  "authors": [
+    "FiVE"
+  ],
+  "license": "MIT",
+  "icon": "icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.trueholdsprint.TrueHoldSprint"
+    ]
+  },
+  "mixins": [
+    "true-hold-sprint.mixins.json"
+  ],
+  "depends": {
+    "minecraft": ">=26.3",
+    "fabricloader": ">=0.19.5"
+  }
+}
