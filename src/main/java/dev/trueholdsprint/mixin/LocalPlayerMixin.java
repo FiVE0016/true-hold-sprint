@@ -6,11 +6,14 @@ import dev.trueholdsprint.ScreenCheck;
 import dev.trueholdsprint.SprintState;
 import dev.trueholdsprint.TrueHoldSprint;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.ClientInput;
 import net.minecraft.client.player.LocalPlayer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * 让疾跑严格跟随「疾跑键 + 移动键」，全向生效（W / A / S / D 都行）。
@@ -49,9 +52,59 @@ public class LocalPlayerMixin {
         tail();
     }
 
+    // 原版在这三个判定中都要求 hasForwardImpulse()，否则无法开始或维持冲刺。
+    // 水下只替换“冲刺资格”的方向判断，不改 Input/移动向量本身。
+    @Redirect(method = "canStartSprinting",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/ClientInput;hasForwardImpulse()Z"),
+            require = 0)
+    private boolean trueholdsprint$allowWaterDirectionalStart(ClientInput input) {
+        return input.hasForwardImpulse() || SprintState.waterDirectionalSprintRequested;
+    }
+
+    @Redirect(method = "shouldStopRunSprinting",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/ClientInput;hasForwardImpulse()Z"),
+            require = 0)
+    private boolean trueholdsprint$keepWaterDirectionalRun(ClientInput input) {
+        return input.hasForwardImpulse() || SprintState.waterDirectionalSprintRequested;
+    }
+
+    @Redirect(method = "shouldStopSwimSprinting",
+            at = @At(value = "INVOKE", target = "Lnet/minecraft/client/player/ClientInput;hasForwardImpulse()Z"),
+            require = 0)
+    private boolean trueholdsprint$keepWaterDirectionalSwim(ClientInput input) {
+        return input.hasForwardImpulse() || SprintState.waterDirectionalSprintRequested;
+    }
+
+    @Inject(method = "shouldStopRunSprinting", at = @At("RETURN"), cancellable = true, require = 0)
+    private void trueholdsprint$stopWaterRunSprintOnRelease(CallbackInfoReturnable<Boolean> cir) {
+        stopWaterSprintOnRelease(cir);
+    }
+
+    @Inject(method = "shouldStopSwimSprinting", at = @At("RETURN"), cancellable = true, require = 0)
+    private void trueholdsprint$stopWaterSwimSprintOnRelease(CallbackInfoReturnable<Boolean> cir) {
+        stopWaterSprintOnRelease(cir);
+    }
+
+    private void stopWaterSprintOnRelease(CallbackInfoReturnable<Boolean> cir) {
+        try {
+            ModConfig c = ModConfig.get();
+            LocalPlayer self = (LocalPlayer) (Object) this;
+            if (c != null && c.enabled && c.stopSprintOnRelease
+                    && self.isInWater()
+                    && SprintState.waterSprintStartedByMod
+                    && !SprintState.waterDirectionalSprintRequested) {
+                cir.setReturnValue(true);
+            }
+        } catch (Throwable t) {
+            TrueHoldSprint.warnOnce("waterStop", "[真正的按住疾跑] 水中松键停止判定出错，已保留原版行为。", t);
+        }
+    }
+
     private void head() {
         try {
             SprintState.localInjected = true;
+            SprintState.waterDirectionalSprintRequested = false;
+            SprintState.vanillaControlsWaterSprintThisTick = false;
 
             Minecraft mc = Minecraft.getInstance();
             ModConfig c = ModConfig.get();
@@ -67,6 +120,24 @@ public class LocalPlayerMixin {
             }
 
             LocalPlayer self = (LocalPlayer) (Object) this;
+
+            // 水中保留原版对 setSprinting / 游泳姿态的控制，只拓宽原版疾跑判定的方向。
+            if (self.isInWater()) {
+                boolean up = mc.options.keyUp.isDown();
+                boolean down = mc.options.keyDown.isDown();
+                boolean left = mc.options.keyLeft.isDown();
+                boolean right = mc.options.keyRight.isDown();
+                boolean moving = up || left || right || (down && c.allowBackwardSprint);
+                boolean requested = mc.options.keySprint.isDown()
+                        && (!c.requireMovement || moving);
+
+                SprintState.waterDirectionalSprintRequested = requested;
+                SprintState.wantSprint = requested;
+                SprintState.weStarted = false;
+                SprintState.vanillaControlsWaterSprintThisTick =
+                        !requested && !SprintState.waterSprintStartedByMod;
+                return;
+            }
 
             // 【B4】姿态不对（趴下/游泳/鞘翅/骑乘/死亡）就不接管：
             // 先清掉 wantSprint，让 LivingEntityMixin 的拦截器放行，原版该停疾跑就停。
@@ -132,6 +203,36 @@ public class LocalPlayerMixin {
 
             Minecraft mc = Minecraft.getInstance();
             if (mc == null || mc.player != (Object) this || mc.options == null) {
+                return;
+            }
+            if (SprintState.waterDirectionalSprintRequested || SprintState.waterSprintStartedByMod) {
+                LocalPlayer self = (LocalPlayer) (Object) this;
+                if (SprintState.waterDirectionalSprintRequested && self.isSprinting()) {
+                    SprintState.waterSprintStartedByMod = true;
+                }
+                if (!self.isInWater() || !self.isSprinting()) {
+                    SprintState.waterSprintStartedByMod = false;
+                }
+                SprintState.waterDirectionalSprintRequested = false;
+                SprintState.wantSprint = false;
+                SprintState.weStarted = false;
+                SprintState.vanillaControlsWaterSprintThisTick = false;
+                return;
+            }
+            if (SprintState.vanillaControlsWaterSprintThisTick) {
+                // 若本帧较早路径曾临时改过按键，先还原；水中实体冲刺状态则不碰。
+                if (SprintState.shiftSuppressed) {
+                    mc.options.keyShift.setDown(true);
+                    SprintState.shiftSuppressed = false;
+                }
+                if (SprintState.sprintKeyForced) {
+                    mc.options.keySprint.setDown(SprintState.origSprintDown);
+                    SprintState.sprintKeyForced = false;
+                }
+                SprintState.origSprintDown = false;
+                SprintState.wantSprint = false;
+                SprintState.weStarted = false;
+                SprintState.vanillaControlsWaterSprintThisTick = false;
                 return;
             }
             if (!SprintState.sprintKeyForced && !SprintState.shiftSuppressed && !SprintState.weStarted) {

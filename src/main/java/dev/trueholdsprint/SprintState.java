@@ -31,6 +31,15 @@ public final class SprintState {
     /** 这次疾跑是不是我们引起的 —— 用来避免误杀原版双击 W 的疾跑。 */
     public static boolean weStarted = false;
 
+    /** 水中整帧交由原版处理，帧尾不可用模组的 wantSprint 覆盖原版游泳冲刺判断。 */
+    public static boolean vanillaControlsWaterSprintThisTick = false;
+
+    /** 当前 LocalPlayer.aiStep 中，模组请求原版允许水下非前进方向的冲刺。 */
+    public static boolean waterDirectionalSprintRequested = false;
+
+    /** 这次水下冲刺由模组按住键请求启动，用于松键时执行 hold-to-sprint 停止行为。 */
+    public static boolean waterSprintStartedByMod = false;
+
     // ── 跳跃方向修正用 ──────────────────────────────
 
     /** 这次跳跃是否要做方向修正。 */
@@ -75,6 +84,9 @@ public final class SprintState {
         origSprintDown = false;
         wantSprint = false;
         weStarted = false;
+        vanillaControlsWaterSprintThisTick = false;
+        waterDirectionalSprintRequested = false;
+        waterSprintStartedByMod = false;
         jumpActive = false;
         jumpPrevX = 0.0;
         jumpPrevZ = 0.0;
@@ -92,7 +104,11 @@ public final class SprintState {
         if (entity == null) {
             return false;
         }
+        // 水中一律让原版接管。26.3 的水中冲刺状态会由原版姿态与冲刺条件共同控制；
+        // 强制 setSprinting 会让站立/游泳状态反复切换。
         return entity.getPose() == Pose.STANDING
+                && !entity.isInWater()
+                && !entity.isSwimming()
                 && !entity.isFallFlying()
                 && !entity.isPassenger()
                 && !entity.isDeadOrDying();
